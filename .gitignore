@@ -5,3 +5,8 @@ echonet.cfg
 .echonet.cfg
 *.pyc
 echonet.egg-info/
+*.csv
+*.pdf
+*.pt
+build/
+*.egg
