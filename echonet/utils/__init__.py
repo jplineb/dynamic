@@ -9,9 +9,6 @@ import numpy as np
 import torch
 import tqdm
 
-from . import video
-from . import segmentation
-
 
 def loadvideo(filename: str) -> np.ndarray:
     """Loads a video from a file.
@@ -42,7 +39,6 @@ def loadvideo(filename: str) -> np.ndarray:
         ret, frame = capture.read()
         if not ret:
             raise ValueError("Failed to load frame #{} of {}.".format(count, filename))
-
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         v[count, :, :] = frame
 
@@ -50,6 +46,43 @@ def loadvideo(filename: str) -> np.ndarray:
 
     return v
 
+def loadvideopda(filename: str) -> np.ndarray:
+    """Loads a video from a file.
+
+    Args:
+        filename (str): filename of video
+
+    Returns:
+        A np.ndarray with dimensions (channels=3, frames, height, width). The
+        values will be uint8's ranging from 0 to 255.
+
+    Raises:
+        FileNotFoundError: Could not find `filename`
+        ValueError: An error occurred while reading the video
+    """
+
+    if not os.path.exists(filename):
+        raise FileNotFoundError(filename)
+    capture = cv2.VideoCapture(filename)
+
+    frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+    frame_width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    v = np.zeros((frame_count, 112, 112, 3), np.uint8)
+
+    for count in range(frame_count):
+        ret, frame = capture.read()
+        if not ret:
+            raise ValueError("Failed to load frame #{} of {}.".format(count, filename))
+        
+        frame = cv2.resize(frame, (112, 112), interpolation=cv2.INTER_AREA)
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        v[count, :, :] = frame
+
+    v = v.transpose((3, 0, 1, 2))
+
+    return v
 
 def savevideo(filename: str, array: np.ndarray, fps: typing.Union[float, int] = 1):
     """Saves a video to a file.
@@ -176,4 +209,7 @@ def dice_similarity_coefficient(inter, union):
     return 2 * sum(inter) / (sum(union) + sum(inter))
 
 
-__all__ = ["video", "segmentation", "loadvideo", "savevideo", "get_mean_and_std", "bootstrap", "latexify", "dice_similarity_coefficient"]
+# from . import video
+from . import segmentation
+
+__all__ = ["video", "segmentation", "loadvideo", "savevideo", "get_mean_and_std", "bootstrap", "latexify", "dice_similarity_coefficient", "loadvideopda"]
