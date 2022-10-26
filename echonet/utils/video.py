@@ -11,6 +11,8 @@ import sklearn.metrics
 import torch
 import torchvision
 import tqdm
+import pandas as pd
+from sklearn import metrics as skmet
 
 import echonet
 
@@ -234,21 +236,21 @@ def run(
                 f.write("{} (one clip) RMSE: {:.2f} ({:.2f} - {:.2f})\n".format(split, *tuple(map(math.sqrt, echonet.utils.bootstrap(y, yhat, sklearn.metrics.mean_squared_error)))))
                 f.flush()
 
-                # Performance with test-time augmentation
-                ds = echonet.datasets.Echo(root=data_dir, split=split, file_list = file_list, **kwargs, clips="all")
-                dataloader = torch.utils.data.DataLoader(
-                    ds, batch_size=1, num_workers=num_workers, shuffle=False, pin_memory=(device.type == "cuda"))
-                loss, yhat, y = echonet.utils.video.run_epoch(model, dataloader, False, None, device, save_all=True, block_size=batch_size)
-                f.write("{} (all clips) R2:   {:.3f} ({:.3f} - {:.3f})\n".format(split, *echonet.utils.bootstrap(y, np.array(list(map(lambda x: x.mean(), yhat))), sklearn.metrics.r2_score)))
-                f.write("{} (all clips) MAE:  {:.2f} ({:.2f} - {:.2f})\n".format(split, *echonet.utils.bootstrap(y, np.array(list(map(lambda x: x.mean(), yhat))), sklearn.metrics.mean_absolute_error)))
-                f.write("{} (all clips) RMSE: {:.2f} ({:.2f} - {:.2f})\n".format(split, *tuple(map(math.sqrt, echonet.utils.bootstrap(y, np.array(list(map(lambda x: x.mean(), yhat))), sklearn.metrics.mean_squared_error)))))
-                f.flush()
+                # # Performance with test-time augmentation
+                # ds = echonet.datasets.Echo(root=data_dir, split=split, file_list = file_list, **kwargs, clips="all")
+                # dataloader = torch.utils.data.DataLoader(
+                #     ds, batch_size=1, num_workers=num_workers, shuffle=False, pin_memory=(device.type == "cuda"))
+                # loss, yhat, y = echonet.utils.video.run_epoch(model, dataloader, False, None, device, save_all=True, block_size=batch_size)
+                # f.write("{} (all clips) R2:   {:.3f} ({:.3f} - {:.3f})\n".format(split, *echonet.utils.bootstrap(y, np.array(list(map(lambda x: x.mean(), yhat))), sklearn.metrics.r2_score)))
+                # f.write("{} (all clips) MAE:  {:.2f} ({:.2f} - {:.2f})\n".format(split, *echonet.utils.bootstrap(y, np.array(list(map(lambda x: x.mean(), yhat))), sklearn.metrics.mean_absolute_error)))
+                # f.write("{} (all clips) RMSE: {:.2f} ({:.2f} - {:.2f})\n".format(split, *tuple(map(math.sqrt, echonet.utils.bootstrap(y, np.array(list(map(lambda x: x.mean(), yhat))), sklearn.metrics.mean_squared_error)))))
+                # f.flush()
 
                 # Write full performance to file
-                with open(os.path.join(output, "{}_predictions.csv".format(split)), "w") as g:
-                    for (filename, pred) in zip(ds.fnames, yhat):
-                        for (i, p) in enumerate(pred):
-                            g.write("{},{},{:.4f}\n".format(filename, i, p))
+                # with open(os.path.join(output, "{}_predictions.csv".format(split)), "w") as g:
+                #     for (filename, pred) in zip(ds.fnames, yhat):
+                #         for (i, p) in enumerate(pred):
+                #             g.write("{},{},{:.4f}\n".format(filename, i, p))
                 echonet.utils.latexify()
                 yhat = np.array(list(map(lambda x: x.mean(), yhat)))
 
@@ -454,9 +456,10 @@ def runPDA(
 
     # Set up model
     model = torchvision.models.video.__dict__[model_name](pretrained=pretrained)
-
+    # import pdb; pdb.set_trace()
     model.fc = torch.nn.Linear(model.fc.in_features, 1)
-    model.fc.bias.data[0] = 55.6
+    # model.fc.bias.data[0] = 55.6
+    
     if device.type == "cuda":
         model = torch.nn.DataParallel(model)
     model.to(device)
@@ -521,6 +524,8 @@ def runPDA(
                     ds, batch_size=batch_size, num_workers=num_workers, shuffle=True, pin_memory=(device.type == "cuda"), drop_last=(phase == "train"))
 
                 loss, yhat, y = run_epoch_pda(model, dataloader, phase == "train", optim, device)
+                if phase == "val":
+                    print(f"Loss on val:{loss} for epoch {epoch}")
                 f.write("{},{},{},{},{},{},{},{},{}\n".format(epoch,
                                                               phase,
                                                               loss,
@@ -558,66 +563,59 @@ def runPDA(
             f.flush()
 
         if run_test:
+            '''
+            Still need to update
+            '''
             for split in ["val", "test"]:
                 # Performance without test-time augmentation
                 dataloader = torch.utils.data.DataLoader(
-                    echonet.datasets.Echo(root=data_dir, file_list = file_list, split=split, **kwargs),
+                    PDALikeEcho(root=data_dir, file_list = file_list, split=split, **kwargs),
                     batch_size=batch_size, num_workers=num_workers, shuffle=True, pin_memory=(device.type == "cuda"))
-                loss, yhat, y = echonet.utils.video.run_epoch(model, dataloader, False, None, device)
-                f.write("{} (one clip) R2:   {:.3f} ({:.3f} - {:.3f})\n".format(split, *echonet.utils.bootstrap(y, yhat, sklearn.metrics.r2_score)))
-                f.write("{} (one clip) MAE:  {:.2f} ({:.2f} - {:.2f})\n".format(split, *echonet.utils.bootstrap(y, yhat, sklearn.metrics.mean_absolute_error)))
-                f.write("{} (one clip) RMSE: {:.2f} ({:.2f} - {:.2f})\n".format(split, *tuple(map(math.sqrt, echonet.utils.bootstrap(y, yhat, sklearn.metrics.mean_squared_error)))))
-                f.flush()
+                
+                # Calculate Metrics and write loss to disk
+                loss, yhat, y = run_epoch_pda(model, dataloader, False, None, device)
+                mets = compute_metrics(y, yhat)
+                df = pd.DataFrame(mets, index=[0]).to_csv(os.path.join(output, f"{split}_results.csv")
 
-                # Performance with test-time augmentation
-                ds = echonet.datasets.Echo(root=data_dir, split=split, file_list = file_list, **kwargs, clips="all")
-                dataloader = torch.utils.data.DataLoader(
-                    ds, batch_size=1, num_workers=num_workers, shuffle=False, pin_memory=(device.type == "cuda"))
-                loss, yhat, y = echonet.utils.video.run_epoch(model, dataloader, False, None, device, save_all=True, block_size=batch_size)
-                f.write("{} (all clips) R2:   {:.3f} ({:.3f} - {:.3f})\n".format(split, *echonet.utils.bootstrap(y, np.array(list(map(lambda x: x.mean(), yhat))), sklearn.metrics.r2_score)))
-                f.write("{} (all clips) MAE:  {:.2f} ({:.2f} - {:.2f})\n".format(split, *echonet.utils.bootstrap(y, np.array(list(map(lambda x: x.mean(), yhat))), sklearn.metrics.mean_absolute_error)))
-                f.write("{} (all clips) RMSE: {:.2f} ({:.2f} - {:.2f})\n".format(split, *tuple(map(math.sqrt, echonet.utils.bootstrap(y, np.array(list(map(lambda x: x.mean(), yhat))), sklearn.metrics.mean_squared_error)))))
-                f.flush()
+#                 # Write full performance to file
+#                 with open(os.path.join(output, "{}_predictions.csv".format(split)), "w") as g:
+#                     for (filename, pred) in zip(ds.fnames, yhat):
+#                         for (i, p) in enumerate(pred):
+#                             g.write("{},{},{:.4f}\n".format(filename, i, p))
+#                 echonet.utils.latexify()
+#                 yhat = np.array(list(map(lambda x: x.mean(), yhat)))
 
-                # Write full performance to file
-                with open(os.path.join(output, "{}_predictions.csv".format(split)), "w") as g:
-                    for (filename, pred) in zip(ds.fnames, yhat):
-                        for (i, p) in enumerate(pred):
-                            g.write("{},{},{:.4f}\n".format(filename, i, p))
-                echonet.utils.latexify()
-                yhat = np.array(list(map(lambda x: x.mean(), yhat)))
+#                 # Plot actual and predicted EF
+#                 fig = plt.figure(figsize=(3, 3))
+#                 lower = min(y.min(), yhat.min())
+#                 upper = max(y.max(), yhat.max())
+#                 plt.scatter(y, yhat, color="k", s=1, edgecolor=None, zorder=2)
+#                 plt.plot([0, 100], [0, 100], linewidth=1, zorder=3)
+#                 plt.axis([lower - 3, upper + 3, lower - 3, upper + 3])
+#                 plt.gca().set_aspect("equal", "box")
+#                 plt.xlabel("Actual EF (%)")
+#                 plt.ylabel("Predicted EF (%)")
+#                 plt.xticks([10, 20, 30, 40, 50, 60, 70, 80])
+#                 plt.yticks([10, 20, 30, 40, 50, 60, 70, 80])
+#                 plt.grid(color="gainsboro", linestyle="--", linewidth=1, zorder=1)
+#                 plt.tight_layout()
+#                 plt.savefig(os.path.join(output, "{}_scatter.pdf".format(split)))
+#                 plt.close(fig)
 
-                # Plot actual and predicted EF
-                fig = plt.figure(figsize=(3, 3))
-                lower = min(y.min(), yhat.min())
-                upper = max(y.max(), yhat.max())
-                plt.scatter(y, yhat, color="k", s=1, edgecolor=None, zorder=2)
-                plt.plot([0, 100], [0, 100], linewidth=1, zorder=3)
-                plt.axis([lower - 3, upper + 3, lower - 3, upper + 3])
-                plt.gca().set_aspect("equal", "box")
-                plt.xlabel("Actual EF (%)")
-                plt.ylabel("Predicted EF (%)")
-                plt.xticks([10, 20, 30, 40, 50, 60, 70, 80])
-                plt.yticks([10, 20, 30, 40, 50, 60, 70, 80])
-                plt.grid(color="gainsboro", linestyle="--", linewidth=1, zorder=1)
-                plt.tight_layout()
-                plt.savefig(os.path.join(output, "{}_scatter.pdf".format(split)))
-                plt.close(fig)
+#                 # Plot AUROC
+#                 fig = plt.figure(figsize=(3, 3))
+#                 plt.plot([0, 1], [0, 1], linewidth=1, color="k", linestyle="--")
+#                 for thresh in [35, 40, 45, 50]:
+#                     fpr, tpr, _ = sklearn.metrics.roc_curve(y > thresh, yhat)
+#                     print(thresh, sklearn.metrics.roc_auc_score(y > thresh, yhat))
+#                     plt.plot(fpr, tpr)
 
-                # Plot AUROC
-                fig = plt.figure(figsize=(3, 3))
-                plt.plot([0, 1], [0, 1], linewidth=1, color="k", linestyle="--")
-                for thresh in [35, 40, 45, 50]:
-                    fpr, tpr, _ = sklearn.metrics.roc_curve(y > thresh, yhat)
-                    print(thresh, sklearn.metrics.roc_auc_score(y > thresh, yhat))
-                    plt.plot(fpr, tpr)
-
-                plt.axis([-0.01, 1.01, -0.01, 1.01])
-                plt.xlabel("False Positive Rate")
-                plt.ylabel("True Positive Rate")
-                plt.tight_layout()
-                plt.savefig(os.path.join(output, "{}_roc.pdf".format(split)))
-                plt.close(fig)
+#                 plt.axis([-0.01, 1.01, -0.01, 1.01])
+#                 plt.xlabel("False Positive Rate")
+#                 plt.ylabel("True Positive Rate")
+#                 plt.tight_layout()
+#                 plt.savefig(os.path.join(output, "{}_roc.pdf".format(split)))
+#                 plt.close(fig)
 
 
 def run_epoch_pda(model, dataloader, train, optim, device, save_all=False, block_size=None):
@@ -681,8 +679,8 @@ def run_epoch_pda(model, dataloader, train, optim, device, save_all=False, block
                     yhat.append(outputs.view(-1).to("cpu").detach().numpy())
 
                 # loss = torch.nn.functional.mse_loss(outputs.view(-1), outcome)
-                loss = torch.nn.functional.binary_cross_entropy(outputs.view(-1), outcome)
-
+                loss = torch.nn.functional.binary_cross_entropy_with_logits(outputs.view(-1), outcome)
+                # import pdb; pdb.set_trace()
                 if train:
                     optim.zero_grad()
                     loss.backward()
@@ -699,3 +697,16 @@ def run_epoch_pda(model, dataloader, train, optim, device, save_all=False, block
     y = np.concatenate(y)
 
     return total / n, yhat, y
+
+def compute_metrics(y_true, y_pred):
+    mets = dict()
+    
+    y_pred_cls = (y_pred>0.5).astype(int)
+    
+    mets['roc_auc'] = skmet.roc_auc_score(y_true, y_pred)
+    mets['average_precision'] = skmet.average_precision_score(y_true, y_pred)
+    mets['accuracy'] = skmet.accuracy_score(y_true, y_pred_cls)
+    mets['sensitivity'] = skmet.recall_score(y_true, y_pred_cls)
+    mets['specificity'] = skmet.recall_score(y_true, y_pred_cls, pos_label=0)
+    
+    return mets

@@ -9,7 +9,6 @@ import skimage.draw
 import torchvision
 import echonet
 
-
 class Echo(torchvision.datasets.VisionDataset):
     """EchoNet-Dynamic Dataset.
 
@@ -287,6 +286,8 @@ def _defaultdict_of_lists():
 ################### CUSTOM CODE ##############################################
 ##############################################################################
 
+from utils import loadvideopda
+
 class PDALikeEcho(torchvision.datasets.VisionDataset):
     """EchoNet-Dynamic Dataset.
 
@@ -434,8 +435,8 @@ class PDALikeEcho(torchvision.datasets.VisionDataset):
         video = self.fnames[index]
         
         # Load video into np.array
-        video = echonet.utils.loadvideo(video).astype(np.float32)
-
+        video = loadvideopda(video).astype(np.float32)
+        
         # Add simulated noise (black out random pixels)
         # 0 represents black at this point (video has not been normalized yet)
         if self.noise is not None:
@@ -458,7 +459,7 @@ class PDALikeEcho(torchvision.datasets.VisionDataset):
             video /= self.std
         else:
             video /= self.std.reshape(3, 1, 1, 1)
-
+        
         # Set number of frames
         c, f, h, w = video.shape
         if self.length is None:
