@@ -575,7 +575,7 @@ def runPDA(
                 # Calculate Metrics and write loss to disk
                 loss, yhat, y = run_epoch_pda(model, dataloader, False, None, device)
                 mets = compute_metrics(y, yhat)
-                df = pd.DataFrame(mets, index=[0]).to_csv(os.path.join(output, f"{split}_results.csv")
+                df = pd.DataFrame(mets, index=[0]).to_csv(os.path.join(output, f"{split}_results.csv"))
 
 #                 # Write full performance to file
 #                 with open(os.path.join(output, "{}_predictions.csv".format(split)), "w") as g:
@@ -703,7 +703,10 @@ def compute_metrics(y_true, y_pred):
     
     y_pred_cls = (y_pred>0.5).astype(int)
     
-    mets['roc_auc'] = skmet.roc_auc_score(y_true, y_pred)
+    try:
+        mets['roc_auc'] = skmet.roc_auc_score(y_true, y_pred)
+    except Exception as e:
+        print(f"failed to calculate roc_auc because {e}")
     mets['average_precision'] = skmet.average_precision_score(y_true, y_pred)
     mets['accuracy'] = skmet.accuracy_score(y_true, y_pred_cls)
     mets['sensitivity'] = skmet.recall_score(y_true, y_pred_cls)
